@@ -1,0 +1,271 @@
+---
+title: "Confirmatory Factor Analysis"
+author: "Isabella Chittumuri"
+date: "11/8/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+13.9 Carry out a factor analysis of the rootstock data of Table 6.2. Combine the six groups into a single sample.
+
+```{r}
+getwd()
+df <- read.table("T6_2_ROOT.DAT")
+root <- df[ -c(1) ]
+```
+
+(a) Estimate the loadings for two factors by the principal component method and do a varimax rotation.
+
+```{r}
+# 1 PC method
+Rmat <- cor(root)
+(e <- eigen(Rmat))
+
+# Proportion of var explained
+pca <- princomp(covmat=Rmat)
+(s <- summary(pca, loadings = TRUE))
+```
+
+```{r}
+# Define loadings
+PC <- -e$vectors[ ,c(1,2)]
+(Load1 <- sqrt(e$values[1])*PC[,1])
+(Load2 <- sqrt(e$values[2])*PC[,2])
+
+p <- nrow(Rmat)
+```
+
+```{r}
+# 1-factor solution
+LL  <- Load1 %*% t(Load1)
+comm <- Load1^2
+Psi <- diag(rep(1,p) - comm)
+round(Rmat - (LL + Psi), 3)
+```
+
+```{r}
+# 2-factor solution
+( L2  <- cbind(Load1,Load2) )
+LL  <- L2 %*% t(L2)
+comm <- Load1^2 + Load2^2
+Psi <- diag(rep(1,p) - comm)
+round(Rmat - LL - Psi,3)
+```
+
+(b) Did the rotation improve the loadings?
+
+```{r}
+# (a) No rotation
+( mle <- factanal(root, factors = 1, rotation="none") )
+attributes(mle)
+
+# control loading suppression by "cutoff"
+print(loadings(mle), cutoff=0.00001)
+print(loadings(mle), cutoff=0.05)
+mle$uniquenesses
+
+# Error matrix
+est <- tcrossprod(mle$loadings) + diag(mle$uniquenesses)
+( ret <- round(Rmat - est, 3) )
+
+# Test for the # of factors
+mle$PVAL
+sapply(1:1, function(nf) factanal(x=root, factors = nf)$PVAL)
+
+# (b) Varimax rotation
+( mle2 <- factanal(root, factors = 1, rotation="varimax") )
+
+# control loading suppression by "cutoff"
+print(loadings(mle2), cutoff=0.00001)
+mle$uniquenesses
+
+# Error matrix
+est <- tcrossprod(mle2$loadings) + diag(mle2$uniquenesses)
+( ret <- round(Rmat - est, 3) )
+
+# Test for the # of factors
+mle$PVAL 
+sapply(1:1, function(nf) factanal(x=root, factors = nf)$PVAL)
+
+# (c) Factor scores
+( mle3 <- factanal(root, factors = 1, rotation="varimax", scores="regression") )
+mle3$scores
+
+# plot the factors wk over wk
+matplot(mle3$scores,type="l",lty=1:2, col=1:2)
+legend("topleft", legend=c("F1", "F2"), lty=1:2, col=1:2)
+
+# try to add the stock returns as well - scale to see them
+mat <- data.frame(mle3$scores, 50*root[,c(1,4)])
+matplot(mat,type="l")
+
+# (d) Varimax rotation for the PC method compared to no rotation
+library(psych)
+(fit1 <- principal(root, nfactors=2, rotate="none") )
+(fit2 <- principal(root, nfactors=2, rotate="varimax") )
+```
+
+Yes, the rotation improved the loadings. The varimax rotated loadings have higher factor loadings in the .90's compared to the regular loadings without rotation.
+
+14.6 Use the football data of Table 8.3, combining the three groups into a single sample. Conduct a confirmatory factor analysis of the covariance matrix using maximum likelihood to fit the model. Test the hypothesis that the observations are driven by two factors related to head size:
+
+f1 = "horizontal dimension" 
+f2 = "vertical dimension"
+
+To fit an identifiable model, define the observed variable "head circumference" to be equal to /i plus error, and define the observed variable "eye-to-top-of- head measurement" to be equal to f2 plus error. In your initial model, allow the other 4 variables to be functions of both factors, for a total of 8 factor loadings to be estimated.
+
+```{r}
+getwd()
+df2 <- read.table("T8_3_FOOTBALL.DAT")
+df3 <- as.data.frame(df2)
+head <- df3[ -c(1) ]
+colnames(head) <- c("WDIM", "CIRCUM", "FBEYE", "EYEHD", "EARHD", "JAW")
+```
+
+(a) Assess goodness of fit with the criteria discussed in Section 14.3.3.
+
+```{r}
+library(sem)
+library(semPlot)
+head.cov <- cov(head); head.cov
+```
+
+```{r}
+# Specify the model - recticular action model (RAM)
+model.head <- specifyModel(text="
+                           F1 ->  CIRCUM, NA, 1
+                           F1 ->  WDIM,  lam1, NA
+                           F1 ->  FBEYE, lam3, NA
+                           F1 ->  EARHD, lam5, NA
+                           F1 ->  JAW, lam6, NA
+                           F2 ->  EYEHD, NA, 1
+                           F2 ->  WDIM, lam2, NA
+                           F2 ->  FBEYE, lam4, NA
+                           F2 ->  EARHD, lam6, NA
+                           F2 ->  JAW, lam8, NA
+                           CIRCUM <-> CIRCUM, psi1, NA
+                           EYEHD <-> EYEHD, psi2, NA
+                           WDIM  <-> WDIM,  psi3, NA
+                           FBEYE <-> FBEYE, psi4, NA
+                           EARHD <-> EARHD, psi5, NA
+                           JAW <-> JAW, psi6, NA
+                           F1 <-> F1, phi1,  NA
+                           F2 <-> F2, phi2,  NA
+                           F1 <-> F2, phi12, NA
+                             ")
+```
+
+```{r}
+# Fit the model
+head.sem <- sem(model.head, head.cov, nrow(head))
+
+# Print results (fit indices, paramters, hypothesis tests)
+summary(head.sem)
+
+# Print coefficients (loadings)
+coef(head.sem)
+
+# Print standardized coefficients (loadings)
+stdCoef(head.sem)
+
+head.sem$t
+
+# Plotting the graph representation of the model
+semPlot::semPaths(head.sem)
+semPlot::semPaths(head.sem, "std")
+```
+
+```{r}
+#=== Hypothesis testing - not rejected
+
+head.sem$criterion
+
+## 'objectiveML'
+summary(head.sem, conf.level=.90, robust=FALSE
+        , analytic.se=head.sem$t <= 100
+        , fit.indices=c("GFI", "RMSEA", "SRMR") #, "AIC", "AICc", "BIC", "CAIC")
+        )
+
+#=== Factor Scores 
+fs <- fscores(head.sem, data=head)
+plot(fs, pch=16)
+```
+
+According to the CFI (comparative fit index), which was 0.957, the model is an okay fit because this value is just barely greater than 0.95.
+According to the RMSEA (Root mean sq. error approx.), which was 0.127, the model is not a good fit because this value is greater than 0.06.
+According to the SRMR (standardized root mean sq. res.), which was 0.065, the model is a good fit because it's less than 0.08.
+
+F1, the effort (score), and F2, the knowledge mastery (score), are calculated and plotted against each other. There doesn't seem to be an correlation between the two scores.
+
+(b) For comparison, fit the 2-factor model with simple structure. That is, fit the model with head width, head circumference, front-to-back measurement at eye level, and jaw width loading only on fi . Similarly, let eye- to-top-of-head measurement and ear-to-top-of-head measurement load only on f2. Use goodness-of-fit criteria and hypothesis tests on factor loadings to compare the initial model with this simple-structure model. Which model is preferable?
+
+```{r}
+# Specify the model - reticular action model (RAM)
+model.head <- specifyModel(text="
+                           F1 ->  CIRCUM, NA, 1
+                           F1 ->  WDIM,  lam1, NA
+                           F1 ->  FBEYE, lam3, NA
+                           F1 ->  JAW, lam6, NA
+                           F2 ->  EYEHD, NA, 1
+                           F2 ->  EARHD, lam6, NA
+                           CIRCUM <-> CIRCUM, psi1, NA
+                           EYEHD <-> EYEHD, psi2, NA
+                           WDIM  <-> WDIM,  psi3, NA
+                           FBEYE <-> FBEYE, psi4, NA
+                           EARHD <-> EARHD, psi5, NA
+                           JAW <-> JAW, psi6, NA
+                           F1 <-> F1, phi1,  NA
+                           F2 <-> F2, phi2,  NA
+                           F1 <-> F2, phi12, NA
+                             ")
+```
+
+```{r}
+# Fit the model
+head.sem <- sem(model.head, data=head)
+
+# Print results (fit indices, parameters, hypothesis tests)
+summary(head.sem)
+
+# Print coefficients (loadings)
+coef(head.sem)
+
+# Print standardized coefficients (loadings)
+stdCoef(head.sem)
+
+head.sem$t
+
+# Plotting the graph representation of the model
+semPlot::semPaths(head.sem)
+semPlot::semPaths(head.sem, "std")
+```
+
+```{r}
+#=== Hypothesis testing - not rejected
+
+head.sem$criterion
+
+## 'objectiveML'
+summary(head.sem, conf.level=.90, robust=FALSE
+        , analytic.se=head.sem$t <= 100
+        , fit.indices=c("GFI", "RMSEA", "SRMR") #, "AIC", "AICc", "BIC", "CAIC")
+        )
+
+#=== Factor Scores 
+fs <- fscores(head.sem, data=head)
+plot(fs, pch=16)
+```
+
+According to the CFI, which was 0.885, the model was not a good fit.
+According to the RMSEA, which was 0.196, the model was not a good fit.
+According to the SRMR, which was 0.12, the model was not a good fit.
+
+Looking at the plotted F1 and F2, there seems to be no correlation between the two scores.
+
+Because of these results, the first model is preferable.
+
+
+
